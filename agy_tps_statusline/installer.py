@@ -59,12 +59,26 @@ _LEGACY_BIN_NAMES = (
 )
 
 
-def _quarantine_legacy_bin_files(current_exe: Optional[Path] = None) -> list[Path]:
-    """Move legacy scripts in agy bin dirs (``~/.gemini/bin``, ``antigravity-cli/bin``) out of PATH."""
-    legacy_dirs = (
+def _quarantine_legacy_bin_files(
+    current_exe: Optional[Path] = None,
+    which_fn: Callable[[str], Optional[str]] = shutil.which,
+) -> list[Path]:
+    """Move legacy scripts in agy bin dirs out of PATH."""
+    legacy_dirs: list[Path] = [
         paths.agy_cli_dir() / "bin",
         paths.gemini_dir() / "bin",
-    )
+    ]
+    local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
+    if local_app_data:
+        legacy_dirs.append(Path(local_app_data) / "agy" / "bin")
+    agy_exe = which_fn("agy")
+    if agy_exe:
+        try:
+            agy_dir = Path(agy_exe).resolve().parent
+            if agy_dir not in legacy_dirs:
+                legacy_dirs.append(agy_dir)
+        except OSError:
+            pass
 
     current_resolved: Optional[Path] = None
     if current_exe is not None:
@@ -74,9 +88,15 @@ def _quarantine_legacy_bin_files(current_exe: Optional[Path] = None) -> list[Pat
             current_resolved = current_exe
 
     moved: list[Path] = []
+    seen_dirs: set[Path] = set()
     for legacy_dir in legacy_dirs:
-        if not legacy_dir.is_dir():
+        try:
+            resolved_dir = legacy_dir.resolve()
+        except OSError:
+            resolved_dir = legacy_dir
+        if resolved_dir in seen_dirs or not legacy_dir.is_dir():
             continue
+        seen_dirs.add(resolved_dir)
         for name in _LEGACY_BIN_NAMES:
             candidate = legacy_dir / name
             try:
@@ -185,7 +205,7 @@ def install(
     """Configure ``settings.json`` and upgrade any agyswap chain wrapper."""
     target_bin_dir = bin_dir or _default_bin_dir()
     argv0 = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
-    quarantined_legacy = _quarantine_legacy_bin_files(argv0)
+    quarantined_legacy = _quarantine_legacy_bin_files(argv0, which_fn=which_fn)
 
     command, created_wrapper = resolve_command_for_install(
         bin_dir=target_bin_dir,

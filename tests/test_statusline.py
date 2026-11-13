@@ -406,14 +406,22 @@ class StatuslineTests(unittest.TestCase):
         gemini_bat = gemini_bin / "agy-tps-statusline.bat"
         gemini_bat.write_text("@echo off\r\npython agy-tps-statusline.py\r\n", encoding="utf-8")
 
-        res2 = install(bin_dir=bin_dir, which_fn=lambda _n: None)
+        appdata_bin = self.root / "AppData" / "Local" / "agy" / "bin"
+        appdata_bin.mkdir(parents=True, exist_ok=True)
+        appdata_bat = appdata_bin / "agy-tps-statusline.bat"
+        appdata_bat.write_text("@echo off\r\npython agy-tps-statusline.py\r\n", encoding="utf-8")
+
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": str(self.root / "AppData" / "Local")}):
+            res2 = install(bin_dir=bin_dir, which_fn=lambda _n: None)
         self.assertFalse(legacy_bat.exists())
         self.assertFalse(legacy_py.exists())
         self.assertFalse(gemini_bat.exists())
+        self.assertFalse(appdata_bat.exists())
         self.assertTrue((legacy_bin / "agy-tps-statusline.bat.legacy.bak").is_file())
         self.assertTrue((legacy_bin / "agy-tps-statusline.py.legacy.bak").is_file())
         self.assertTrue((gemini_bin / "agy-tps-statusline.bat.legacy.bak").is_file())
-        self.assertEqual(len(res2["quarantined_legacy"]), 3)
+        self.assertTrue((appdata_bin / "agy-tps-statusline.bat.legacy.bak").is_file())
+        self.assertEqual(len(res2["quarantined_legacy"]), 4)
 
         uninstall()
         after_uninstall = json.loads(cfg_path.read_text(encoding="utf-8"))
