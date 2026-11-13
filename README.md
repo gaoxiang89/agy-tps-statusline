@@ -44,6 +44,16 @@ uv tool update-shell   # 如果提示找不到 agy-tps-statusline，运行后重
 agy-tps-statusline install
 ```
 
+> **如果以前手动安装过旧版脚本（`~/.gemini/antigravity-cli/bin/agy-tps-statusline.py` / `.bat`）**：
+> 旧脚本不认识 `install` 子命令且可能在 `PATH` 中优先级高于 `uv` 的 `~/.local/bin`，会导致运行 `agy-tps-statusline install` 时卡在 `sys.stdin.read()`。可先删掉旧脚本再运行，或直接用 `uv` 安装的绝对路径执行（会自动备份清理旧文件）：
+>
+> ```powershell
+> Remove-Item "$env:USERPROFILE\.gemini\antigravity-cli\bin\agy-tps-statusline*"
+> agy-tps-statusline install
+> # 或者直接运行：
+> & "$env:USERPROFILE\.local\bin\agy-tps-statusline.exe" install
+> ```
+
 ### 方式二：使用 `pipx`
 
 ```bash

@@ -164,6 +164,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"Wrapper {res['created_wrapper']}")
         if res["upgraded_agyswap_wrapper"]:
             print(f"Upgraded agyswap chain wrapper {res['upgraded_agyswap_wrapper']}")
+        for legacy_bak in res.get("quarantined_legacy") or []:
+            print(f"Moved legacy script -> {legacy_bak}")
         print(f"Command {res['command']}")
         return 0
 

@@ -51,14 +51,70 @@ def _write_standalone_wrapper(bin_dir: Path, python_exe: str) -> Path:
     return target
 
 
+_LEGACY_BIN_NAMES = (
+    "agy-tps-statusline",
+    "agy-tps-statusline.py",
+    "agy-tps-statusline.bat",
+    "agy-tps-statusline.cmd",
+)
+
+
+def _quarantine_legacy_bin_files(current_exe: Optional[Path] = None) -> list[Path]:
+    """Move legacy scripts in ``~/.gemini/antigravity-cli/bin`` out of PATH."""
+    legacy_dir = paths.agy_cli_dir() / "bin"
+    if not legacy_dir.is_dir():
+        return []
+
+    current_resolved: Optional[Path] = None
+    if current_exe is not None:
+        try:
+            current_resolved = current_exe.resolve()
+        except OSError:
+            current_resolved = current_exe
+
+    moved: list[Path] = []
+    for name in _LEGACY_BIN_NAMES:
+        candidate = legacy_dir / name
+        try:
+            if not candidate.is_file():
+                continue
+            if current_resolved is not None and candidate.resolve() == current_resolved:
+                continue
+            backup = candidate.with_name(f"{candidate.name}.legacy.bak")
+            os.replace(candidate, backup)
+            moved.append(backup)
+        except OSError:
+            continue
+    return moved
+
+
 def resolve_command_for_install(
     bin_dir: Optional[Path] = None,
     which_fn: Callable[[str], Optional[str]] = shutil.which,
 ) -> tuple[str, Optional[Path]]:
     """Resolve the command string for ``settings.json`` and write a wrapper if needed."""
+    argv0 = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    running_own_bin = bool(
+        argv0
+        and argv0.name.lower().startswith("agy-tps-statusline")
+        and argv0.exists()
+    )
+
     found = which_fn("agy-tps-statusline")
     if found:
+        if running_own_bin and argv0 is not None:
+            try:
+                if Path(found).resolve() != argv0.resolve():
+                    return str(argv0.resolve()), None
+            except OSError:
+                pass
         return "agy-tps-statusline", None
+
+    if running_own_bin and argv0 is not None:
+        try:
+            return str(argv0.resolve()), None
+        except OSError:
+            return str(argv0), None
 
     target_dir = bin_dir or _default_bin_dir()
     wrapper = _write_standalone_wrapper(target_dir, sys.executable)
@@ -124,6 +180,9 @@ def install(
 ) -> dict[str, Any]:
     """Configure ``settings.json`` and upgrade any agyswap chain wrapper."""
     target_bin_dir = bin_dir or _default_bin_dir()
+    argv0 = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    quarantined_legacy = _quarantine_legacy_bin_files(argv0)
+
     command, created_wrapper = resolve_command_for_install(
         bin_dir=target_bin_dir,
         which_fn=which_fn,
@@ -163,6 +222,7 @@ def install(
         "settings_path": cfg_path,
         "backup_path": backup_path,
         "upgraded_agyswap_wrapper": upgraded_wrapper,
+        "quarantined_legacy": quarantined_legacy,
         "statusLine": sl_block,
     }
 

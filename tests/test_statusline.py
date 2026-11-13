@@ -393,6 +393,21 @@ class StatuslineTests(unittest.TestCase):
         self.assertNotIn("agyswap", new_wrapper_text)
         self.assertIn("agy-tps-statusline", new_wrapper_text)
 
+        # Legacy scripts inside ~/.gemini/antigravity-cli/bin are quarantined.
+        legacy_bin = paths.agy_cli_dir() / "bin"
+        legacy_bin.mkdir(parents=True, exist_ok=True)
+        legacy_bat = legacy_bin / "agy-tps-statusline.bat"
+        legacy_py = legacy_bin / "agy-tps-statusline.py"
+        legacy_bat.write_text("@echo off\r\npython agy-tps-statusline.py\r\n", encoding="utf-8")
+        legacy_py.write_text("import sys; sys.stdin.read()\n", encoding="utf-8")
+
+        res2 = install(bin_dir=bin_dir, which_fn=lambda _n: None)
+        self.assertFalse(legacy_bat.exists())
+        self.assertFalse(legacy_py.exists())
+        self.assertTrue((legacy_bin / "agy-tps-statusline.bat.legacy.bak").is_file())
+        self.assertTrue((legacy_bin / "agy-tps-statusline.py.legacy.bak").is_file())
+        self.assertEqual(len(res2["quarantined_legacy"]), 2)
+
         uninstall()
         after_uninstall = json.loads(cfg_path.read_text(encoding="utf-8"))
         self.assertFalse(after_uninstall["statusLine"]["enabled"])
