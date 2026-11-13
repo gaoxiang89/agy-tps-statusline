@@ -29,5 +29,9 @@ classifiers = [
 [project.scripts]
 agy-tps-statusline = "agy_tps_statusline.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/gaoxiang89/agy-tps-statusline"
+Repository = "https://github.com/gaoxiang89/agy-tps-statusline"
+
 [tool.setuptools.packages.find]
 include = ["agy_tps_statusline*"]
