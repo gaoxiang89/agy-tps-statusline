@@ -60,10 +60,11 @@ _LEGACY_BIN_NAMES = (
 
 
 def _quarantine_legacy_bin_files(current_exe: Optional[Path] = None) -> list[Path]:
-    """Move legacy scripts in ``~/.gemini/antigravity-cli/bin`` out of PATH."""
-    legacy_dir = paths.agy_cli_dir() / "bin"
-    if not legacy_dir.is_dir():
-        return []
+    """Move legacy scripts in agy bin dirs (``~/.gemini/bin``, ``antigravity-cli/bin``) out of PATH."""
+    legacy_dirs = (
+        paths.agy_cli_dir() / "bin",
+        paths.gemini_dir() / "bin",
+    )
 
     current_resolved: Optional[Path] = None
     if current_exe is not None:
@@ -73,18 +74,21 @@ def _quarantine_legacy_bin_files(current_exe: Optional[Path] = None) -> list[Pat
             current_resolved = current_exe
 
     moved: list[Path] = []
-    for name in _LEGACY_BIN_NAMES:
-        candidate = legacy_dir / name
-        try:
-            if not candidate.is_file():
-                continue
-            if current_resolved is not None and candidate.resolve() == current_resolved:
-                continue
-            backup = candidate.with_name(f"{candidate.name}.legacy.bak")
-            os.replace(candidate, backup)
-            moved.append(backup)
-        except OSError:
+    for legacy_dir in legacy_dirs:
+        if not legacy_dir.is_dir():
             continue
+        for name in _LEGACY_BIN_NAMES:
+            candidate = legacy_dir / name
+            try:
+                if not candidate.is_file():
+                    continue
+                if current_resolved is not None and candidate.resolve() == current_resolved:
+                    continue
+                backup = candidate.with_name(f"{candidate.name}.legacy.bak")
+                os.replace(candidate, backup)
+                moved.append(backup)
+            except OSError:
+                continue
     return moved
 
 
