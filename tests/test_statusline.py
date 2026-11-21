@@ -20,6 +20,7 @@ from agy_tps_statusline.transcript import (
     read_latest_llm_timing,
     resolve_transcript_path,
     rewrite_antigravity_cli_path,
+    update_cache_stats,
 )
 
 
@@ -465,6 +466,47 @@ class StatuslineTests(unittest.TestCase):
         # Malformed input never raises.
         bad = run_statusline_from_raw("{not-json", now=1003.0)
         self.assertIn("-- tok/s", strip_ansi(bad))
+
+    def test_11_cache_hit_rate_incremental_and_render(self) -> None:
+        sid = "cache-1"
+        base = [
+            {"step_index": 0, "type": "USER_INPUT", "content": "hi"},
+            {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "2026-01-01T00:00:00Z",
+             "input_tokens": 10000, "cache_read_tokens": 0, "output_tokens": 100},
+            {"step_index": 3, "type": "PLANNER_RESPONSE", "created_at": "2026-01-01T00:00:05Z",
+             "input_tokens": 1000, "cache_read_tokens": 9000, "output_tokens": 100},
+        ]
+        tp = self._write_transcript(sid, base)
+
+        # Full scan on first sight.
+        c1 = update_cache_stats(tp, None)
+        self.assertEqual(c1, {"idx": 3, "in": 11000, "hit": 9000, "last_in": 1000, "last_hit": 9000})
+        # No new steps: unchanged.
+        self.assertEqual(update_cache_stats(tp, c1), c1)
+
+        # Incremental add.
+        base.append({"step_index": 5, "type": "PLANNER_RESPONSE", "created_at": "2026-01-01T00:00:09Z",
+                     "input_tokens": 500, "cache_read_tokens": 19500, "output_tokens": 50})
+        self._write_transcript(sid, base)
+        c2 = update_cache_stats(tp, c1)
+        self.assertEqual(c2, {"idx": 5, "in": 11500, "hit": 28500, "last_in": 500, "last_hit": 19500})
+
+        # Tail window that misses already-counted steps falls back to a full scan.
+        c3 = update_cache_stats(tp, {"idx": 1, "in": 10000, "hit": 0, "last_in": 0, "last_hit": 0}, tail_bytes=10)
+        self.assertEqual(c3, c2)
+
+        state = {"out": 250, "t_start": 0.0, "rate": 10.0, "working": False, "step_idx": 5, "cache": c2}
+        payload = extract_payload({"model": {"display_name": "M"}})
+        plain = strip_ansi(render_statusline(payload, state, 0.0))
+        self.assertIn("cache 71% (last 98%)", plain)
+
+        # End-to-end via CLI: cache stats persisted in session state.
+        raw = json.dumps({"session_id": sid, "agent_state": "idle",
+                          "context_window": {"total_output_tokens": 250}})
+        line = strip_ansi(run_statusline_from_raw(raw, now=2000.0))
+        self.assertIn("cache 71%", line)
+        saved = json.loads((paths.tps_state_dir() / f"{sid}.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["cache"]["hit"], 28500)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 Cross-platform (Linux, macOS, Windows), zero-dependency status line for **Antigravity CLI (`agy`)**.
 
-显示端到端模型输出速率（`tok/s`）、实时等待耗时（`⏳`）、输出 token 总量、上下文窗口占用、配额余量以及当前模型，并内置兼容 `agy-swap` 的零开销配额缓存同步。
+显示端到端模型输出速率（`tok/s`）、实时等待耗时（`⏳`）、输出 token 总量、上下文窗口占用、Prompt 缓存命中率、配额余量以及当前模型，并内置兼容 `agy-swap` 的零开销配额缓存同步。
 
 ---
 
@@ -19,7 +19,9 @@ Cross-platform (Linux, macOS, Windows), zero-dependency status line for **Antigr
    - 仅在状态真正变化时原子写入 `cache/tps/<session_id>.json`；
    - 若本机存在 `~/.agy-swap`，通过 `os.stat` 节流（10 秒）自动同步 Schema 2 配额缓存到 `~/.agy-swap/cache/quota.json`。
 4. **终端宽度自适应（Responsive Layout）**
-   根据 `agy` 传入的 `terminal_width` 自动裁剪上下文与配额段，窄终端下也不会溢出折行。
+   根据 `agy` 传入的 `terminal_width` 自动裁剪上下文、缓存命中率与配额段，窄终端下也不会溢出折行。
+5. **Prompt 缓存命中率（`cache 87% (last 93%)`）**
+   从 `transcript.jsonl` 的每步 `input_tokens`（未命中）与 `cache_read_tokens`（命中）累加，命中率 = `cache_read / (input + cache_read)`。前者为会话累计（按 token 加权），`last` 为最近一次模型请求。仅在 token 跳变或 working/idle 切换时增量读取末尾 64 KB（首次或窗口不足时全量扫描一次），结果持久化在会话状态文件中。颜色：≥70% 绿、≥30% 黄、其余灰。
 
 ---
 

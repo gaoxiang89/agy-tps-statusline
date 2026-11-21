@@ -151,3 +151,116 @@ def make_timing_getter(
         return read_latest_llm_timing(tp, prev_step_idx)
 
     return _getter
+
+
+def _iter_jsonl_objects(chunk: bytes):
+    text = chunk.decode("utf-8", errors="replace")
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            yield obj
+
+
+def _read_transcript_chunk(path: Path, tail_bytes: Optional[int]) -> Optional[tuple[bytes, bool]]:
+    """Return ``(chunk, is_partial)``; ``tail_bytes=None`` reads the whole file."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            offset = 0 if tail_bytes is None else max(0, size - tail_bytes)
+            f.seek(offset)
+            chunk = f.read()
+    except OSError:
+        return None
+    if offset > 0:
+        nl = chunk.find(b"\n")
+        if nl == -1:
+            return b"", True
+        chunk = chunk[nl + 1 :]
+    return chunk, offset > 0
+
+
+def _usage_entries(chunk: bytes) -> list[tuple[int, int, int]]:
+    """Extract ``(step_idx, uncached_input, cache_read)`` from model steps."""
+    entries: list[tuple[int, int, int]] = []
+    for obj in _iter_jsonl_objects(chunk):
+        if "input_tokens" not in obj and "cache_read_tokens" not in obj:
+            continue
+        idx = to_int(obj.get("step_index"))
+        if idx is None:
+            continue
+        inp = max(0, to_int(obj.get("input_tokens")) or 0)
+        hit = max(0, to_int(obj.get("cache_read_tokens")) or 0)
+        if inp + hit <= 0:
+            continue
+        entries.append((idx, inp, hit))
+    return entries
+
+
+def update_cache_stats(
+    transcript_path: Optional[Path],
+    prev: Optional[dict[str, Any]],
+    tail_bytes: int = 65536,
+) -> Optional[dict[str, Any]]:
+    """Incrementally accumulate prompt-cache usage from the transcript.
+
+    Each model step records ``input_tokens`` (uncached prompt tokens) and
+    ``cache_read_tokens`` (prompt tokens served from cache). The hit rate is
+    ``cache_read / (input + cache_read)``.
+
+    Returned dict: ``idx`` (last counted step), ``in``/``hit`` (session sums),
+    ``last_in``/``last_hit`` (latest step). Returns ``prev`` unchanged when
+    nothing new is found, or ``None`` when no data is available.
+    """
+    if transcript_path is None:
+        return prev
+
+    prev_ok = isinstance(prev, dict) and to_int(prev.get("idx")) is not None
+    entries: list[tuple[int, int, int]]
+    if prev_ok:
+        res = _read_transcript_chunk(transcript_path, tail_bytes)
+        if res is None:
+            return prev
+        chunk, partial = res
+        entries = _usage_entries(chunk)
+        prev_idx = to_int(prev.get("idx"))  # type: ignore[union-attr]
+        # If the tail window does not reach back to the last counted step,
+        # some steps would be skipped: rescan the full file instead.
+        if partial and not any(idx <= prev_idx for idx, _, _ in entries):
+            prev_ok = False
+    if not prev_ok:
+        res = _read_transcript_chunk(transcript_path, None)
+        if res is None:
+            return prev
+        entries = _usage_entries(res[0])
+        if not entries:
+            return None
+        total_in = sum(e[1] for e in entries)
+        total_hit = sum(e[2] for e in entries)
+        last = max(entries, key=lambda e: e[0])
+        return {
+            "idx": last[0],
+            "in": total_in,
+            "hit": total_hit,
+            "last_in": last[1],
+            "last_hit": last[2],
+        }
+
+    assert prev is not None
+    newer = [e for e in entries if e[0] > prev_idx]
+    if not newer:
+        return prev
+    last = max(newer, key=lambda e: e[0])
+    return {
+        "idx": last[0],
+        "in": (to_int(prev.get("in")) or 0) + sum(e[1] for e in newer),
+        "hit": (to_int(prev.get("hit")) or 0) + sum(e[2] for e in newer),
+        "last_in": last[1],
+        "last_hit": last[2],
+    }

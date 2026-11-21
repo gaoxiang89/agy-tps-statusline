@@ -25,7 +25,11 @@ from agy_tps_statusline.installer import (
     uninstall,
 )
 from agy_tps_statusline.render import render_statusline
-from agy_tps_statusline.transcript import make_timing_getter
+from agy_tps_statusline.transcript import (
+    make_timing_getter,
+    resolve_transcript_path,
+    update_cache_stats,
+)
 
 
 def _configure_stdio() -> None:
@@ -83,6 +87,20 @@ def run_statusline_from_raw(raw_input: str, now: Optional[float] = None) -> str:
             prune_stale(state_dir, ts)
         timing_getter = make_timing_getter(data, session_id)
         state, dirty = update_state(prev, out_toks, agent_state, ts, timing_getter)
+        prev_cache = prev.get("cache") if isinstance(prev, dict) else None
+        if isinstance(prev, dict) and "cache" in prev and not dirty:
+            state["cache"] = prev_cache
+        else:
+            # Only touch the transcript on state transitions (token jump,
+            # working/idle flip) or first sight, never on idle ticks.
+            prev_out = prev.get("out") if isinstance(prev, dict) else None
+            if isinstance(prev_out, int) and out_toks < prev_out:
+                prev_cache = None  # session rewound: recount from scratch
+            tp = resolve_transcript_path(data, session_id)
+            cache = update_cache_stats(tp, prev_cache)
+            state["cache"] = cache
+            if not isinstance(prev, dict) or cache != prev.get("cache"):
+                dirty = True
         if dirty:
             atomic_write_text(state_file, json.dumps(state))
 
@@ -108,7 +126,14 @@ def _sample_render(now: float) -> str:
         },
     }
     extracted = extract_payload(sample_payload)
-    sample_state = {"out": 6200, "t_start": now, "rate": 64.5, "working": False, "step_idx": 10}
+    sample_state = {
+        "out": 6200,
+        "t_start": now,
+        "rate": 64.5,
+        "working": False,
+        "step_idx": 10,
+        "cache": {"idx": 10, "in": 9000, "hit": 47000, "last_in": 1200, "last_hit": 24800},
+    }
     return render_statusline(extracted, sample_state, now)
 
 

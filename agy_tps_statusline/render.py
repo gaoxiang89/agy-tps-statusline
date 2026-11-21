@@ -118,6 +118,39 @@ def _format_context(
     return f"{color}ctx {fmt_tokens(in_toks)}/{fmt_tokens(ctx_size)} ({used_pct:.0f}%){RESET}"
 
 
+def _hit_pct(inp: Any, hit: Any) -> Optional[float]:
+    if not isinstance(inp, int) or not isinstance(hit, int):
+        return None
+    total = inp + hit
+    if total <= 0:
+        return None
+    return hit * 100.0 / total
+
+
+def _hit_color(pct: float) -> str:
+    if pct >= 70.0:
+        return GREEN
+    if pct >= 30.0:
+        return YELLOW
+    return GRAY
+
+
+def _format_cache(cache: Any, *, compact: bool = False) -> str:
+    """Render prompt-cache hit rate: session-weighted plus the latest request."""
+    if not isinstance(cache, dict):
+        return ""
+    total = _hit_pct(cache.get("in"), cache.get("hit"))
+    if total is None:
+        return ""
+    text = f"{_hit_color(total)}cache {total:.0f}%{RESET}"
+    if compact:
+        return text
+    last = _hit_pct(cache.get("last_in"), cache.get("last_hit"))
+    if last is not None:
+        text += f" {GRAY}(last{RESET} {_hit_color(last)}{last:.0f}%{RESET}{GRAY}){RESET}"
+    return text
+
+
 def _compact_window_label(key: str) -> str:
     if key in _WINDOW_SHORT_LABELS:
         return _WINDOW_SHORT_LABELS[key]
@@ -224,10 +257,14 @@ def render_statusline(
     quota_full = _format_quota_full(windows, now)
     quota_compact = _format_quota_compact(windows, now)
     model_seg = f"{BLUE}{model}{RESET}" if model else ""
+    cache_full = _format_cache(state.get("cache"), compact=False)
+    cache_compact = _format_cache(state.get("cache"), compact=True)
 
     candidates = [
-        join_parts(tps_seg, out_seg, ctx_full, quota_full, model_seg),
-        join_parts(tps_seg, out_seg, ctx_compact, quota_compact, model_seg),
+        join_parts(tps_seg, out_seg, ctx_full, cache_full, quota_full, model_seg),
+        join_parts(tps_seg, out_seg, ctx_full, cache_compact, quota_full, model_seg),
+        join_parts(tps_seg, out_seg, ctx_compact, cache_compact, quota_compact, model_seg),
+        join_parts(tps_seg, out_seg, ctx_compact, cache_compact, model_seg),
         join_parts(tps_seg, out_seg, ctx_compact, model_seg),
         join_parts(tps_seg, out_seg, model_seg),
     ]
