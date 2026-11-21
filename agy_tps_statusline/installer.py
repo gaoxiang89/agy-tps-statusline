@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -320,3 +321,58 @@ def format_doctor_report(info: dict[str, Any], sample_line: str = "") -> str:
     if sample_line:
         lines.append(f"  sample output   : {sample_line}")
     return "\n".join(lines)
+
+
+DEFAULT_REPO_URL = "git+https://github.com/gaoxiang89/agy-tps-statusline"
+
+
+def detect_upgrade_command(
+    source: str = DEFAULT_REPO_URL,
+    *,
+    which_fn: Callable[[str], Optional[str]] = shutil.which,
+    prefix: Optional[Path] = None,
+    python_exe: Optional[str] = None,
+) -> tuple[str, list[str]]:
+    """Select the appropriate upgrade command for the active installation."""
+    env_prefix = prefix if prefix is not None else Path(sys.prefix)
+    py = python_exe or sys.executable
+
+    is_uv = (env_prefix / "uv-receipt.toml").is_file() or "uv" in env_prefix.parts
+    if is_uv:
+        uv_exe = which_fn("uv")
+        if uv_exe:
+            return "uv", [uv_exe, "tool", "install", "--reinstall", "--from", source, "agy-tps-statusline"]
+
+    if "pipx" in str(env_prefix).lower():
+        pipx_exe = which_fn("pipx")
+        if pipx_exe:
+            return "pipx", [pipx_exe, "install", "--force", source]
+
+    return "pip", [py, "-m", "pip", "install", "--upgrade", "--force-reinstall", source]
+
+
+def upgrade(
+    source: str = DEFAULT_REPO_URL,
+    *,
+    which_fn: Callable[[str], Optional[str]] = shutil.which,
+    run_fn: Optional[Callable[[list[str]], int]] = None,
+    prefix: Optional[Path] = None,
+    python_exe: Optional[str] = None,
+) -> dict[str, Any]:
+    """Upgrade agy-tps-statusline from ``source`` (defaults to GitHub)."""
+    manager, cmd = detect_upgrade_command(
+        source=source,
+        which_fn=which_fn,
+        prefix=prefix,
+        python_exe=python_exe,
+    )
+    if run_fn is None:
+        proc = subprocess.run(cmd, check=False)
+        rc = proc.returncode
+    else:
+        rc = run_fn(cmd)
+    return {
+        "manager": manager,
+        "command": cmd,
+        "returncode": rc,
+    }

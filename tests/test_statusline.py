@@ -13,7 +13,13 @@ from agy_tps_statusline import paths
 from agy_tps_statusline.agyswap_sync import maybe_sync_agyswap_quota
 from agy_tps_statusline.cli import run_statusline_from_raw
 from agy_tps_statusline.core import extract_payload, update_state
-from agy_tps_statusline.installer import install, uninstall
+from agy_tps_statusline.installer import (
+    DEFAULT_REPO_URL,
+    detect_upgrade_command,
+    install,
+    uninstall,
+    upgrade,
+)
 from agy_tps_statusline.render import render_statusline, strip_ansi, visible_width
 from agy_tps_statusline.transcript import (
     parse_iso_utc,
@@ -507,6 +513,47 @@ class StatuslineTests(unittest.TestCase):
         self.assertIn("cache 71%", line)
         saved = json.loads((paths.tps_state_dir() / f"{sid}.json").read_text(encoding="utf-8"))
         self.assertEqual(saved["cache"]["hit"], 28500)
+
+    def test_12_upgrade_command_detection(self) -> None:
+        uv_prefix = self.root / "uv" / "tools" / "agy-tps-statusline"
+        uv_prefix.mkdir(parents=True)
+        (uv_prefix / "uv-receipt.toml").write_text("[tool]\n", encoding="utf-8")
+
+        mgr, cmd = detect_upgrade_command(
+            prefix=uv_prefix,
+            which_fn=lambda n: "/usr/bin/uv" if n == "uv" else None,
+        )
+        self.assertEqual(mgr, "uv")
+        self.assertEqual(
+            cmd,
+            ["/usr/bin/uv", "tool", "install", "--reinstall", "--from", DEFAULT_REPO_URL, "agy-tps-statusline"],
+        )
+
+        pipx_prefix = self.root / "pipx" / "venvs" / "agy-tps-statusline"
+        pipx_prefix.mkdir(parents=True)
+        mgr_px, cmd_px = detect_upgrade_command(
+            prefix=pipx_prefix,
+            which_fn=lambda n: "/usr/bin/pipx" if n == "pipx" else None,
+        )
+        self.assertEqual(mgr_px, "pipx")
+        self.assertEqual(cmd_px, ["/usr/bin/pipx", "install", "--force", DEFAULT_REPO_URL])
+
+        other_prefix = self.root / "venv"
+        other_prefix.mkdir(parents=True)
+        ran: list[list[str]] = []
+        res = upgrade(
+            source="https://example.com/repo.git",
+            prefix=other_prefix,
+            python_exe="/opt/py/python3",
+            which_fn=lambda _n: None,
+            run_fn=lambda c: ran.append(c) or 0,
+        )
+        self.assertEqual(res["manager"], "pip")
+        self.assertEqual(res["returncode"], 0)
+        self.assertEqual(
+            ran[0],
+            ["/opt/py/python3", "-m", "pip", "install", "--upgrade", "--force-reinstall", "https://example.com/repo.git"],
+        )
 
 
 if __name__ == "__main__":

@@ -87,6 +87,7 @@ agy-tps-statusline install              # 写入 ~/.gemini/antigravity-cli/setti
 agy-tps-statusline install --stack      # 设置 stack_with_default = true（保留 agy 默认状态栏）
 agy-tps-statusline install --no-stack   # 设置 stack_with_default = false
 agy-tps-statusline doctor               # 检查路径、配置、状态缓存与示例渲染
+agy-tps-statusline upgrade              # 从 GitHub 拉取并升级到最新版本（支持 --from 指定源）
 agy-tps-statusline uninstall            # 将 statusLine.enabled 设为 false
 ```
 

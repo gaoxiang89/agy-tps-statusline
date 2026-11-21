@@ -19,10 +19,12 @@ from agy_tps_statusline.core import (
     update_state,
 )
 from agy_tps_statusline.installer import (
+    DEFAULT_REPO_URL,
     collect_doctor_info,
     format_doctor_report,
     install,
     uninstall,
+    upgrade,
 )
 from agy_tps_statusline.render import render_statusline
 from agy_tps_statusline.transcript import (
@@ -166,6 +168,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("uninstall", help="Disable statusLine in agy settings.json")
     sub.add_parser("doctor", help="Show local installation and cache diagnostics")
+    p_upgrade = sub.add_parser("upgrade", help="Upgrade agy-tps-statusline from GitHub")
+    p_upgrade.add_argument(
+        "--from",
+        dest="source",
+        default=DEFAULT_REPO_URL,
+        help="Package source to upgrade from (default: GitHub main)",
+    )
     return parser
 
 
@@ -207,6 +216,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         _safe_print(format_doctor_report(info, sample_line=_sample_render(time.time())))
         return 0
 
+    if args.subcommand == "upgrade":
+        res = upgrade(source=args.source)
+        rc = int(res["returncode"])
+        if rc != 0:
+            cmd_str = " ".join(res["command"])
+            print(f"\nUpgrade failed (exit {rc}). You can run manually:\n  {cmd_str}", file=sys.stderr)
+        return rc
+
     if not args.stdin and sys.stdin.isatty():
         info = collect_doctor_info()
         _safe_print(format_doctor_report(info, sample_line=_sample_render(time.time())))
@@ -214,6 +231,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("  agy-tps-statusline install      # configure ~/.gemini/antigravity-cli/settings.json")
         print("  agy-tps-statusline uninstall    # disable statusLine in settings.json")
         print("  agy-tps-statusline doctor       # inspect status and paths")
+        print("  agy-tps-statusline upgrade      # upgrade from GitHub")
         return 0
 
     try:
